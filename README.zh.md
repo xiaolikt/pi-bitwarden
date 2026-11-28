@@ -1,105 +1,95 @@
-# pi-bitwarden
+# pi-bitwarden — 已归档，由 ai-vault 取代
 
-[English version](README.md)
+> **这个项目已归档。** 它还能装、能跑，但不再更新：没有新功能，也不修 bug。
+> 它做过的事情全部活在 **[ai-vault](https://github.com/xiaolikt/ai-vault)** 里，
+> 开发也在那边继续。
+>
+> [English](README.md)
 
-给 [pi coding agent](https://github.com/earendil-works/pi-coding-agent) 的 Bitwarden 扩展：**把保险库密码安全地交给进程，而不是交给大模型**。
+## 迁移到 ai-vault
 
-模型需要跑一条需要凭据的命令（API token、`docker login`、`git push`……）时，密码从 Bitwarden 直接注入到 bash 子进程的环境变量里——**密码全文永远不出现在对话里**，不发给 LLM 供应商，不写进会话文件。
+ai-vault 保留了这个扩展的全部工具——`bw_list`、`bw_run`、`bw_inject`、
+`bw_clipboard`、`bw_reveal`、输出擦洗、`/bw`——并增加了全机共享的加密密码库、
+Ente Auth，以及可配置的解锁策略。
 
-## 特性
+| 你原来有的 | 现在得到的 |
+|---|---|
+| `bw_list` / `bw_run` / `bw_inject` / `bw_clipboard` / `bw_reveal` | 同名同行为 |
+| 每个会话输一次主密码 | `bitwarden.unlock`：`session` / `time` / `never`——想不再输就把 `bw` 会话落盘 |
+| 密码只在 Bitwarden 里 | `vault_get`：先查本地库、Bitwarden 兜底，命中后可导入——你同意的那些就能让 agent 自由用 |
+| — | `vault_add`、`vault_list`、`vault_import`、`ente_list`、`ente_code` |
+| — | 一个 `~/.ai-vault`，pi、omp 和机器上别的 agent 共用 |
 
-| 工具 | 作用 | 模型能看到密码？ |
+```bash
+npm i -g @xiaolikt/ai-vault          # CLI（Linux、Windows、Linux arm64）
+pi install npm:pi-ai-vault           # pi
+omp plugin install npm:pi-ai-vault   # omp
+/vault init                           # 一次
+```
+
+**不要两个都装。** pi-bitwarden 和 pi-ai-vault 注册同一批 `bw_*` 工具，都装会重复。
+先把这个卸掉：
+
+```bash
+pi remove git:github.com/xiaolikt/pi-bitwarden
+```
+
+完整文档：[github.com/xiaolikt/ai-vault](https://github.com/xiaolikt/ai-vault) ·
+[npm: pi-ai-vault](https://www.npmjs.com/package/pi-ai-vault) ·
+[npm: @xiaolikt/ai-vault](https://www.npmjs.com/package/@xiaolikt/ai-vault)
+
+---
+
+## 它原来是什么
+
+一个给 [pi coding agent](https://github.com/earendil-works/pi-coding-agent) **和 OMP**
+用的扩展：把 Bitwarden 密码交给**进程，而不是大模型**。
+
+当模型要跑一条需要凭据的命令（API token、`docker login`、`git push`……）时，
+密码从你的 Bitwarden 库直接进 bash 子进程。密码**从不出现在对话里**——不发给
+模型提供商，也不写进会话文件。
+
+| 工具 | 作用 | 模型看得到密码？ |
 |---|---|---|
-| `bw_list` | 列出条目（名称/用户名/URI/id），不含密码 | ❌ |
-| `bw_inject` | 取出密码注入为 bash 环境变量（逐次确认） | ❌ 只拿到"已注入 $XXX" |
-| `bw_clipboard` | 复制到系统剪贴板，30 秒自动清除 | ❌ |
-| `bw_reveal` | 明文返回（逐次确认 + 强警告，可配置关闭） | ✅ 用户逐次授权 |
-| `/bw status\|unlock\|lock\|clear` | 管理解锁状态 | — |
+| `bw_list` | 列条目（名称 / 用户名 / URI / id）；按这些字段搜索，`offset`/`limit` | ❌ |
+| `bw_inject` | 把密码注入 bash 环境变量，本会话内有效（**仅 pi**；每次确认） | ❌ 只看到「已注入为 $XXX」 |
+| `bw_run` | 用 `$VAULT_SECRET` 跑一条命令（**pi 和 OMP 都能用**） | ❌ 输出被擦洗 |
+| `bw_clipboard` | 复制到剪贴板，自动清除（默认 30 秒），锁定/退出时也清 | ❌ |
+| `bw_reveal` | 明文返回（每次确认 + 强警告，可关闭） | ✅ 用户当场允许 |
+| `/bw status\|unlock\|lock\|clear [ENV]` | 管理解锁状态；撤销注入的变量 | — |
 
-## 安全模型
+`bw_list`/`bw_inject`/`bw_run`/`bw_clipboard`/`bw_reveal` 共用字段选择器：
+`password`（默认）· `totp`（种子）· `code`（动态验证码，`bw get totp`）· `notes` · `field:<自定义字段名>`。
 
-- **主密码**：Zenity 桌面弹窗（无桌面时 TUI 输入兜底），只通过环境变量传给 `bw unlock`，不进 argv / 日志 / 会话
-- **BW_SESSION 只存在 pi 进程内存**：不落盘、不进 bash 环境（模型无法借 `bw list` 直接翻保险库）
-- **输出擦除兜底**：`tool_result` 钩子把所有工具结果里的活动密码（含 base64 变体）替换为 `[BW_SCRUBBED:$VAR]`——`printenv`、`echo $VAR` 等都会被拦截
-- **失败即关**（fail-closed）：无 UI 且无桌面时，确认一律拒绝
-- **自动锁定**：闲置 N 分钟（默认 0=整个会话一次解锁）、`/bw lock`、`/new` `/fork` 切会话、pi 退出——锁定即清空 session key 和全部注入变量
-- **审计日志**：`~/.bw/pi-extension/audit.log`（时间戳、条目名、变量名、允许/拒绝，永不记录密码）
-- **env 名黑名单**：拒绝 `PATH`、`LD_*`、`NODE_OPTIONS`、`BW_*`、`PI_*` 等注入向量
+## 安全模型（发布时的）
 
-### 浏览器填密码
+- **主密码**：Zenity 桌面弹窗（OMP 的 TUI 回退会掩码输入；上游 pi 忽略掩码提示）。只通过环境变量传给 `bw unlock`——绝不进 argv、日志或会话。
+- **BW_SESSION 只在 agent 进程内存里**：不落盘，扩展也不会把它放进 bash 环境。如果你启动 `pi`/`omp` 时 shell 里已经 export 了 `BW_SESSION`，模型的 bash 会继承它——先取消。
+- **注入的密码**：
+  - **pi**：`bw_inject` 用 `createBashTool` 的 `spawnHook`，值只存在于 bash 子进程环境里。
+  - **OMP**：OMP 对模型的 bash 调用会丢弃那个 hook。所以 `bw_inject` 在 OMP 上**拒绝运行**，而不是假装成功；用 `bw_run`，它只起一条命令，值在命令结束后就没了。什么都不写盘。
+- **输出擦洗**：一个 `tool_result` 钩子把每个注入/运行过的值、它的 base64/base64url/URL 编码/hex 形式、以及 `details`/`structuredContent` 里的同样字符串，都换成 `[BW_SCRUBBED:$VAR]`。`/bw clear` 或锁定后仍然擦洗，所以早先写进文件的值不能被 `cat` 回模型。截断的 bash 输出产物也会擦洗。
+- **每次确认**：`bw_inject`、`bw_clipboard`、`bw_reveal` 会弹窗（zenity），显示**实际解析到的**条目和字段；TUI 回退走 pi/OMP 的输入框。拒绝即最终，工具会告诉模型不要重试。
+- **审计日志**：`~/.bw/pi-extension/audit.log` 记录解锁、拒绝、注入和明文读取，带会话标签，从不记值。
+- **`bw_reveal` 默认关闭**；接受密码会进对话的话，在 `~/.bw/pi-extension/config.json` 里打开。
 
-配合 agent-browser（模型全程看不到密码）：
+## 安装（旧版，仍然可用）
 
-```bash
-bw_inject item GitHub env GH_PASS          # ① 注入
-agent-browser fill @e4 "$GH_PASS"          # ② 填表单
-```
-
-重复登录同一个站可以一次性导入 agent-browser 自己的凭据库，之后不再需要密码：
-
-```bash
-printenv $GH_PASS | agent-browser auth save my-app --username me@example.com --password-stdin
-agent-browser auth login my-app
-```
-
-### 已知残余风险（诚实声明）
-
-- 注入后，模型理论上可以通过网络命令外传密码（`curl` 等；输出擦除防不住），这是"密码进 bash 环境"的固有代价，靠每次注入的人工确认把关
-- 单向哈希（md5/sha256）不会被擦除
-- `bw_reveal` 的明文必然进入 LLM 供应商和会话文件——所以才需要逐次确认
-
-## 安装
-
-需要：`bw` CLI 已 `bw login`；桌面环境有 `zenity`（无桌面也可用，走 TUI）。
+需要 Bitwarden CLI（`bw`），并用 `bw login` 登录过。
 
 ```bash
-# pi：从 GitHub 装成一个 package（升级只需一条命令）
-pi install git:github.com/hljhljhlj/pi-bitwarden
-
-# omp：同一个仓库，用 git+ssh 形式（bun 无法用 https 拉私有库）
-omp plugin install git+ssh://git@github.com/hljhljhlj/pi-bitwarden.git
-
-# 开发安装（仓库内改动 + /reload 即生效）
-git clone https://github.com/hljhljhlj/pi-bitwarden ~/Project/pi-bitwarden
-~/Project/pi-bitwarden/install.sh --dev   # symlink 到 ~/.pi/agent/extensions/
+pi install npm:pi-bitwarden              # pi
+omp plugin install npm:pi-bitwarden      # omp
 ```
 
-升级：
+或从源码：
 
 ```bash
-pi update git:github.com/hljhljhlj/pi-bitwarden
-omp plugin install git+ssh://git@github.com/hljhljhlj/pi-bitwarden.git --force
+pi install git:github.com/xiaolikt/pi-bitwarden
+omp plugin install git+ssh://git@github.com/xiaolikt/pi-bitwarden.git
 ```
 
-不要同时保留 `~/.pi/agent/extensions/bitwarden.ts` symlink 和 package 安装：两者会同时加载，每个 `bw_*` 工具会出现两次。
-
-## 配置 `~/.bw/pi-extension/config.json`
-
-```jsonc
-{
-  "autoLockMinutes": 0,     // 闲置自动锁。0 = 整个会话只输一次主密码
-  "keepOnResume": true,     // /resume 切会话保留解锁状态（/new、/fork 始终锁定）
-  "clipboardClearSeconds": 30,
-  "allowReveal": true,      // false = 彻底关闭明文通道
-  "maxInjectedEnv": 12
-}
-```
-
-## 开发与测试
-
-```bash
-npm test    # = bash test/run.sh
-```
-
-端到端测试完全无头：mock 的 `bw` / `zenity` / `wl-copy`（`test/mocks/`）+ 每个场景一次真实的 `pi --no-session --mode json` 会话。**断言全部落在工具结果事件上**，不依赖模型复述（模型总结会复述/幻觉，工具事件是权威的）。
-
-覆盖：加载与 bash 覆盖、未登录提示（不弹窗）、列表无泄漏、注入→环境变量→输出擦除、base64 变体擦除、剪贴板、拒绝路径 fail-closed、reveal 允许路径、**每会话只解锁一次**。
-
-> 调试教训：mock 脚本里 `echo "$(( $(cat 多行文件) + 1 ))"` 的算术展开错误会让 bash 以退出码 0 中止脚本——确认弹窗被静默"允许"。计数器必须单数字截断写。
-
-## 历史
-
-本扩展替代了此前的 `bw-mcp`（盲代理 MCP，负责保险库整理/重命名/移动，密码强制打码）。pi-bitwarden 反过来解决"密码要送到进程里"的问题：env 注入 / 剪贴板 / 受控明文，三者都带人工确认。
+第一次用会要 Bitwarden 主密码；之后会话密钥留在内存里，直到会话结束（或 `/bw lock`）。
 
 ## 许可证
 

@@ -1,11 +1,13 @@
 {
-  "_doc": "pi bitwarden 扩展配置。复制到 ~/.bw/pi-extension/config.json 后生效（pi 内 /reload）。",
+  "_doc": "pi bitwarden 扩展配置。复制到 ~/.bw/pi-extension/config.json 后生效（pi/omp 内 /reload）。类型或范围不对时按 fail-closed 处理并往 stderr 打警告。",
   "autoLockMinutes": 0,
-  "_autoLockMinutes_doc": "闲置多少分钟后自动锁保险库并清掉所有注入的环境变量。0 = 整个 pi 会话只需输一次主密码（仅 /bw lock 或 pi 退出时锁定）。想要更严格可改回 15。",
+  "_autoLockMinutes_doc": "闲置多少分钟后自动锁保险库并清掉所有注入的环境变量。0 = 整个会话只需输一次主密码（仅 /bw lock 或退出时锁定）。非法值按 15 分钟处理。",
   "keepOnResume": true,
-  "_keepOnResume_doc": "用 /resume 切换会话时保留解锁状态（同一进程内不重新要密码）。/new 和 /fork 始终会锁定。",
+  "_keepOnResume_doc": "用 /resume 切换会话时保留解锁状态（同一进程内不重新要密码）。/new 和 /fork 始终会锁定。非法值按 false 处理。",
   "clipboardClearSeconds": 30,
+  "_clipboardClearSeconds_doc": "剪贴板自动清除秒数。0 = 不自动清除（lock 和退出仍会清）。只在剪贴板仍是本次复制的内容时才清，避免误删用户后来复制的东西。",
   "allowReveal": true,
-  "_allowReveal_doc": "是否启用 bw_reveal（明文给模型，逐次确认）。不需要明文通道就改 false。",
-  "maxInjectedEnv": 12
+  "_allowReveal_doc": "是否启用 bw_reveal（明文给模型，逐次确认）。不需要明文通道就改 false。非法值按 false 处理。",
+  "maxInjectedEnv": 12,
+  "_maxInjectedEnv_doc": "同时注入的环境变量上限（1..64）。"
 }

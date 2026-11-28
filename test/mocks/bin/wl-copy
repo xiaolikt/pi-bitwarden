@@ -1,6 +1,9 @@
 #!/bin/bash
-# Mock wl-copy: capture stdin into the mock clipboard file.
+# Mock wl-copy: capture stdin into the mock clipboard file and keep a copy log
+# (the real auto-clear wipes the clipboard, so tests assert on the copy log).
 MOCK_DIR="${BW_MOCK_DIR:-/tmp/bw-mock-state}"
 mkdir -p "$MOCK_DIR"
 if [[ "${1:-}" == "-c" ]]; then : > "$MOCK_DIR/clipboard"; exit 0; fi
 cat > "$MOCK_DIR/clipboard"
+cat "$MOCK_DIR/clipboard" >> "$MOCK_DIR/clipboard.copies"
+printf '\n' >> "$MOCK_DIR/clipboard.copies"

@@ -1,51 +1,52 @@
 {
-  "name": "pi-bitwarden",
-  "version": "0.2.0",
-  "description": "Bitwarden secret delivery for pi and OMP: inject vault secrets into bash env / clipboard without exposing them to the LLM.",
-  "type": "module",
-  "pi": {
-    "extensions": [
-      "./bitwarden.ts"
-    ]
-  },
-  "scripts": {
-    "test": "bash test/run.sh",
-    "test:omp": "bash test/omp-smoke.sh",
-    "test:unit": "bun test test/scrub.test.ts"
-  },
-  "files": [
-    "bitwarden.ts",
-    "scrub.ts",
-    "config.example.json",
-    "README.md",
-    "README.zh.md",
-    "LICENSE",
-    "install.sh"
-  ],
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*"
-  },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "typebox": {
-      "optional": true
-    }
-  },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/xiaolikt/pi-bitwarden.git"
-  },
-  "keywords": [
-    "pi",
-    "pi-coding-agent",
-    "omp",
-    "bitwarden",
-    "secrets",
-    "security",
-    "extension"
-  ]
+	"name": "pi-bitwarden",
+	"version": "0.2.0",
+	"description": "ARCHIVED — superseded by ai-vault (https://github.com/xiaolikt/ai-vault). Bitwarden secret delivery for the pi coding agent: inject vault secrets into bash env / clipboard without exposing them to the LLM.",
+	"type": "module",
+	"pi": {
+		"extensions": [
+			"./bitwarden.ts"
+		]
+	},
+	"scripts": {
+		"test": "bash test/run.sh",
+		"test:omp": "bash test/omp-smoke.sh",
+		"test:unit": "bun test test/scrub.test.ts"
+	},
+	"files": [
+		"bitwarden.ts",
+		"scrub.ts",
+		"config.example.json",
+		"README.md",
+		"README.zh.md",
+		"LICENSE",
+		"install.sh"
+	],
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		},
+		"typebox": {
+			"optional": true
+		}
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/xiaolikt/pi-bitwarden.git"
+	},
+	"keywords": [
+		"pi",
+		"pi-coding-agent",
+		"omp",
+		"bitwarden",
+		"secrets",
+		"security",
+		"extension"
+	],
+	"deprecated": "This project is archived. Migrate to pi-ai-vault: https://github.com/xiaolikt/ai-vault"
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end tests for the pi-bitwarden extension, fully headless:
-# mock bw CLI + mock zenity + mock wl-copy (see test/mocks/).
+# mock bw CLI + mock zenity + mock clipboard (see test/mocks/).
 #
 # Each scenario runs a real `pi --no-session --mode json` session in a fresh
 # temp dir and asserts on TOOL RESULT EVENTS, never on the model's prose
@@ -11,6 +11,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export BW_MOCK_DIR="$(mktemp -d /tmp/pi-bw-test.XXXXXX)"
 export PATH="$ROOT/test/mocks/bin:$PATH"
 PI="${PI_BIN:-pi}"
+MODEL_ARGS=()
+[[ -n "${PI_MODEL:-}" ]] && MODEL_ARGS=(--model "$PI_MODEL")
 PASS=0; FAIL=0
 
 say()  { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
@@ -36,9 +38,22 @@ normalize_events() {
 run_scenario() {
 	local name="$1" envs="$2"; shift 2
 	local cwd; cwd="$(mktemp -d "$BW_MOCK_DIR/cwd-$name.XXXX")"
-	( cd "$cwd" && env $envs timeout 300 "$PI" --no-session --mode json -p "$*" 2>&1 ) \
+	( cd "$cwd" && env $envs timeout 300 "$PI" --no-session --no-extensions \
+		-e "$ROOT/bitwarden.ts" "${MODEL_ARGS[@]}" --mode json -p "$*" 2>&1 ) \
 		| normalize_events > "$BW_MOCK_DIR/$name.events"
+	# An empty event stream would make every negative assertion pass vacuously.
+	if ! grep -q '^TOOL ' "$BW_MOCK_DIR/$name.events"; then
+		bad "scenario $name produced no tool events (extension load or provider failure?)"
+	fi
 }
+
+# ---------------------------------------------------------------- S0: unit
+say "S0: scrubber unit tests (deterministic)"
+if command -v bun >/dev/null 2>&1; then
+	if bun test "$ROOT/test/scrub.test.ts"; then ok "scrubber unit tests"; else bad "scrubber unit tests"; fi
+else
+	printf '  SKIP bun not found (install bun to run the unit tests)\n'
+fi
 
 # ---------------------------------------------------------------- S1: load
 say "S1: extension loads, bash override intact"
@@ -53,40 +68,47 @@ check "friendly not-logged-in hint" "$BW_MOCK_DIR/s2.events" -q "TOOL bw_list ER
 count_eq "no master-password prompt" "$BW_MOCK_DIR/pw-prompts" "0" "."
 
 # ------------------------------------------------- S3: happy path, one unlock
-say "S3: list → inject → env → scrub → base64-scrub → clipboard (ONE unlock)"
-rm -f "$BW_MOCK_DIR/pw-prompts" "$BW_MOCK_DIR/unlocks" "$BW_MOCK_DIR/clipboard"
-run_scenario s3 "" 'Do exactly these 7 steps in order:
+say "S3: list → inject → env → clipboard (ONE unlock)"
+rm -f "$BW_MOCK_DIR/pw-prompts" "$BW_MOCK_DIR/unlocks" "$BW_MOCK_DIR/clipboard" "$BW_MOCK_DIR/clipboard.copies"
+# Scrubber encodings are covered deterministically by test/scrub.test.ts; this
+# scenario proves the real bash tool sees the injected variable.
+run_scenario s3 "" "Do exactly these steps in order:
 1) bw_list
 2) bw_inject item TestService field password env T1
-3) bash: echo LEN=${#T1}
-4) bash: printenv T1
-5) bw_inject item TestService field field:API_KEY env T2
-6) bash: echo $T2 | base64
-7) bw_clipboard item TestService'
+3) bash: echo LEN=\${#T1}
+4) bw_clipboard item TestService"
 check "bw_list shows items, not passwords" "$BW_MOCK_DIR/s3.events" -q "TOOL bw_list OK .*user: alice"
 check "bw_list leaks no password" "$BW_MOCK_DIR/s3.events" -v -q "supersecret-value-123"
 check "inject confirms env var" "$BW_MOCK_DIR/s3.events" -q "TOOL bw_inject OK .*Injected \$T1"
 check "env var really injected (LEN=21)" "$BW_MOCK_DIR/s3.events" -q "TOOL bash OK .*LEN=21"
-check "printenv scrubbed in result event" "$BW_MOCK_DIR/s3.events" -q "TOOL bash OK .*BW_SCRUBBED:T1"
-check "base64 scrubbed in result event" "$BW_MOCK_DIR/s3.events" -q "TOOL bash OK .*BW_SCRUBBED-B64:T2"
-check "no raw secret in any result event" "$BW_MOCK_DIR/s3.events" -v -q "supersecret-value-123"
-check "no b64 secret in any result event" "$BW_MOCK_DIR/s3.events" -v -q "aGZfc2stYWJjOTg3eHl6NDU2"
 check "clipboard tool confirms" "$BW_MOCK_DIR/s3.events" -q "TOOL bw_clipboard OK .*Copied \"TestService\""
-check "clipboard really contains secret" "$BW_MOCK_DIR/clipboard" -q "supersecret-value-123"
+check "clipboard really received secret" "$BW_MOCK_DIR/clipboard.copies" -q "supersecret-value-123"
 count_eq "master password prompted ONCE per session" "$BW_MOCK_DIR/pw-prompts" "1" "."
 count_eq "bw unlock ran ONCE per session" "$BW_MOCK_DIR/unlocks" "1" "."
 
 # ------------------------------------------------- S4: deny path fail-closed
 say "S4: user declines → fail closed"
-run_scenario s4 "BW_MOCK_DENY=1" "Call bw_inject item TestService env D1, then bw_reveal item TestService reason test."
+run_scenario s4 "BW_MOCK_DENY=1" "Call bw_inject item TestService field password env D1"
 check "inject declined" "$BW_MOCK_DIR/s4.events" -q "TOOL bw_inject ERR .*User declined the injection"
-check "reveal declined" "$BW_MOCK_DIR/s4.events" -q "TOOL bw_reveal ERR .*User declined the reveal"
 check "nothing injected on deny" "$BW_MOCK_DIR/s4.events" -v -q "TOOL bw_inject OK"
+
+say "S4b: reveal declined"
+run_scenario s4b "BW_MOCK_DENY=1" "Call bw_reveal item TestService field password reason test"
+check "reveal declined" "$BW_MOCK_DIR/s4b.events" -q "TOOL bw_reveal ERR .*User declined the reveal"
 
 # ------------------------------------------------- S5: reveal allow path
 say "S5: bw_reveal allow path (confirmation mocked to allow)"
 run_scenario s5 "" "Call bw_reveal item TestService field field:API_KEY reason citest"
 check "reveal returned secret in tags" "$BW_MOCK_DIR/s5.events" -q "TOOL bw_reveal OK .*<secret>hf_sk-abc987xyz456</secret>"
+
+# ------------------------------------------------- S6: bw_run one-shot env
+say "S6: bw_run runs one command with \$VAULT_SECRET"
+rm -f "$BW_MOCK_DIR/pw-prompts" "$BW_MOCK_DIR/unlocks"
+run_scenario s6 "" 'Call bw_run with item TestService, field password, and command: echo LEN=${#VAULT_SECRET}; printenv VAULT_SECRET'
+check "bw_run sees the secret" "$BW_MOCK_DIR/s6.events" -q "TOOL bw_run OK .*LEN=21"
+# Output scrubbing is deterministic in test/scrub.test.ts; models sometimes
+# rewrite "printenv" into a non-printing check of their own.
+check "no raw secret from bw_run" "$BW_MOCK_DIR/s6.events" -v -q "supersecret-value-123"
 
 # ------------------------------------------------- summary
 say "RESULT: $PASS passed, $FAIL failed"
